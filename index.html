@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>PA CONTROL CONSOLE PRO</title>
+
+<style>
+body{
+  margin:0;
+  background:#1a1a1a;
+  font-family:"Courier New", monospace;
+  color:#ddd;
+  height:100vh;
+}
+
+.console{
+  width:100vw;
+  height:100vh;
+  background:#111;
+  padding:15px;
+  box-sizing:border-box;
+  display:grid;
+  grid-template-columns: 2.2fr 1.3fr;
+  grid-template-rows: auto auto 1fr;
+  gap:15px;
+}
+
+#clock{
+  font-size:42px;
+  color:#00ff00;
+  font-weight:bold;
+  letter-spacing:3px;
+}
+
+textarea,input,select{
+  width:100%;
+  background:#000;
+  color:#0f0;
+  border:2px solid #555;
+  font-size:18px;
+  padding:8px;
+  box-sizing:border-box;
+}
+
+textarea{ resize:none; }
+
+button{
+  padding:12px;
+  background:#222;
+  color:white;
+  border:2px solid #666;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:16px;
+}
+
+button:hover{ background:#333; }
+
+.section{
+  border:2px solid #333;
+  padding:15px;
+  overflow:auto;
+}
+
+.item{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+}
+
+.item button:first-child{ flex:1; }
+
+.lamp{
+  display:inline-block;
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  background:#300;
+  margin-left:15px;
+}
+
+.lamp.on{
+  background:red;
+  box-shadow:0 0 25px red;
+}
+</style>
+</head>
+<body>
+
+<div class="console">
+
+<div class="section">
+  <div id="clock">--:--:--</div>
+  <textarea id="text" rows="3" placeholder="手動放送内容"></textarea>
+</div>
+
+<div class="section" id="fixedList">
+<b>固定音声</b><br><br>
+</div>
+
+<div class="section">
+  <button onclick="normal()">通常放送</button>
+  <button onclick="emergency()">臨時放送（割込）</button>
+  <br><br>
+  放送中 <span id="lamp" class="lamp"></span>
+</div>
+
+<div class="section">
+<b>固定音声登録</b><br>
+<input id="regName" placeholder="放送名">
+<textarea id="regText" rows="2" placeholder="本文"></textarea>
+<select id="regChime">
+<option value="A">チャイムA</option>
+<option value="B">チャイムB</option>
+</select>
+<button onclick="registerFixed()">登録</button>
+</div>
+
+<div class="section" style="grid-column:1 / span 2;">
+<b>予約放送</b><br><br>
+
+<input type="time" id="resTime">
+<select id="resChime">
+<option value="A">チャイムA</option>
+<option value="B">チャイムB</option>
+</select>
+<select id="resInterrupt">
+<option value="false">通常扱い</option>
+<option value="true">割込扱い</option>
+</select>
+<textarea id="resText" rows="2" placeholder="予約本文"></textarea>
+<button onclick="addReservation()">追加</button>
+
+<hr>
+
+<div id="resList"></div>
+
+</div>
+
+</div>
+
+<audio id="chimeA" src="TOA_XEBEC_chimeA.wav"></audio>
+<audio id="chimeB" src="TOA_XEBEC_chimeB.wav"></audio>
+
+<script>
+
+// ===== 時計 =====
+function updateClock(){
+  const now=new Date();
+  const h=String(now.getHours()).padStart(2,"0");
+  const m=String(now.getMinutes()).padStart(2,"0");
+  const s=String(now.getSeconds()).padStart(2,"0");
+  document.getElementById("clock").textContent=`${h}:${m}:${s}`;
+  checkReservations(h+":"+m);
+}
+setInterval(updateClock,1000);
+updateClock();
+
+// ===== 放送処理 =====
+function playAnnouncement(text,type,interrupt=false){
+  const lamp=document.getElementById("lamp");
+  const chime=document.getElementById(type==="A"?"chimeA":"chimeB");
+
+  if(interrupt){
+    speechSynthesis.cancel();
+    chimeA.pause();
+    chimeB.pause();
+  }
+
+  lamp.classList.add("on");
+
+  chime.currentTime=0;
+  chime.play();
+
+  chime.onended=function(){
+    const utter=new SpeechSynthesisUtterance(text);
+    utter.lang="ja-JP";
+    utter.onend=function(){
+      lamp.classList.remove("on");
+    };
+    speechSynthesis.speak(utter);
+  }
+}
+
+function normal(){
+  playAnnouncement(text.value,"A");
+}
+
+function emergency(){
+  playAnnouncement(text.value,"B",true);
+}
+
+// ===== 固定音声 =====
+function registerFixed(){
+  if(!regName.value||!regText.value) return;
+
+  const data=JSON.parse(localStorage.getItem("fixed")||"[]");
+  data.push({name:regName.value,text:regText.value,chime:regChime.value});
+  localStorage.setItem("fixed",JSON.stringify(data));
+  loadFixed();
+}
+
+function loadFixed(){
+  const list=document.getElementById("fixedList");
+  list.innerHTML="<b>固定音声</b><br><br>";
+  const data=JSON.parse(localStorage.getItem("fixed")||"[]");
+
+  data.forEach((item,i)=>{
+    const div=document.createElement("div");
+    div.className="item";
+
+    const btn=document.createElement("button");
+    btn.textContent=item.name;
+    btn.onclick=()=>playAnnouncement(item.text,item.chime,true);
+
+    const del=document.createElement("button");
+    del.textContent="削除";
+    del.onclick=()=>{
+      data.splice(i,1);
+      localStorage.setItem("fixed",JSON.stringify(data));
+      loadFixed();
+    };
+
+    div.appendChild(btn);
+    div.appendChild(del);
+    list.appendChild(div);
+  });
+}
+loadFixed();
+
+// ===== 予約放送 =====
+function addReservation(){
+  if(!resTime.value||!resText.value) return;
+
+  const data=JSON.parse(localStorage.getItem("res")||"[]");
+  data.push({
+    time:resTime.value,
+    text:resText.value,
+    chime:resChime.value,
+    interrupt:resInterrupt.value==="true",
+    done:false
+  });
+
+  localStorage.setItem("res",JSON.stringify(data));
+  loadReservations();
+}
+
+function loadReservations(){
+  const list=document.getElementById("resList");
+  list.innerHTML="";
+  const data=JSON.parse(localStorage.getItem("res")||"[]");
+
+  data.forEach((item,i)=>{
+    const div=document.createElement("div");
+    div.className="item";
+
+    const btn=document.createElement("button");
+    btn.textContent=item.time+" "+item.text.substring(0,15);
+    btn.onclick=()=>playAnnouncement(item.text,item.chime,item.interrupt);
+
+    const del=document.createElement("button");
+    del.textContent="削除";
+    del.onclick=()=>{
+      data.splice(i,1);
+      localStorage.setItem("res",JSON.stringify(data));
+      loadReservations();
+    };
+
+    div.appendChild(btn);
+    div.appendChild(del);
+    list.appendChild(div);
+  });
+}
+loadReservations();
+
+function checkReservations(currentTime){
+  const data=JSON.parse(localStorage.getItem("res")||"[]");
+
+  data.forEach(item=>{
+    if(item.time===currentTime && !item.done){
+      playAnnouncement(item.text,item.chime,item.interrupt);
+      item.done=true;
+    }
+  });
+
+  localStorage.setItem("res",JSON.stringify(data));
+}
+
+</script>
+</body>
+</html>
